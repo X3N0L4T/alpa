@@ -1,0 +1,8 @@
+.venv/
+models/
+recordings/
+assets/
+*.mp4
+__pycache__/
+*.pyc
+.idea/
