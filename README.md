@@ -31,12 +31,17 @@ cd alpa
 ```bash
 pip install -r requirements.txt
 ```
-3. Download the face swap model
+3. Create required folders
+```bash
+   mkdir models
+   mkdir assets
+```
+4. Download the face swap model
    - Download `inswapper_128.onnx` from https://github.com/deepinsight/insightface/releases
    - Place it in the `models/` folder
-4. Add a target face
+5. Add a target face
    - Place any clear front-facing photo at `assets/target.jpg`
-5. Run
+6. Run
 ```bash
 python main.py
 ```
