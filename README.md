@@ -23,24 +23,36 @@ This is a project I took on to further advance my Python programming. This tool 
 
 ## Installation
 1. Clone the repo
-   \```
-   git clone https://github.com/X3N0L4T/alpa.git
-   cd alpa
-   \```
+```bash
+git clone https://github.com/X3N0L4T/alpa.git
+cd alpa
+```
 2. Install dependencies
-   \```
-   pip install -r requirements.txt
-   \```
+```bash
+pip install -r requirements.txt
+```
 3. Download the face swap model
    - Download `inswapper_128.onnx` from https://github.com/deepinsight/insightface/releases
    - Place it in the `models/` folder
 4. Add a target face
    - Place any clear front-facing photo at `assets/target.jpg`
 5. Run
-   \```
-   python main.py
-   \```
+```bash
+python main.py
+```
 
+## Project Structure
+```
+alpa/
+├── main.py          # GUI entry point
+├── camera.py        # Camera detection and live frame capture
+├── face_swap.py     # Face detection, model loading, and swap logic
+├── logger.py        # Background MP4 recording with timestamped output
+├── tracker.py       # Facial landmark tracking
+├── requirements.txt # Python dependencies
+├── models/          # Place inswapper_128.onnx here (not included)
+└── assets/          # Place your target face image here as target.jpg
+```
 
 ## How It Works
 Every time your webcam captures a frame, your face gets quickly scanned to find where your eyes, nose, and mouth are. It then takes the target photo you provided and stretches it to fit the exact 3D shape of your face using InsightFace's InSwapper model.
