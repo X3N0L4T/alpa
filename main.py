@@ -1,146 +1,264 @@
+import os
+import sys
 import cv2
-import tkinter as tk
-from tkinter import filedialog, messagebox
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout,
+    QHBoxLayout, QPushButton, QLabel, QFileDialog,
+    QComboBox, QStatusBar, QSlider
+)
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QImage, QPixmap, QIcon, QFont
 
 from camera import detect_user_cams
 from face_swap import initialize_model, load_target_face, swap_current_face
 from logger import start_recording, write_frames, stop_recording
 
+THEMES = {
+    "Dark": """
+        QMainWindow, QWidget {{
+            background-color: #1a1a2e;
+            color: #ccd6f6;
+            font-family: Courier New;
+            font-size: {font_size}px;
+        }}
+        QPushButton {{
+            background-color: #112240;
+            color: #64ffda;
+            border: 1px solid #233554;
+            border-radius: 6px;
+            padding: 8px 16px;
+        }}
+        QPushButton:hover {{ background-color: #233554; }}
+        QLabel {{ color: #ffffff; }}
+        QComboBox {{
+            background-color: #112240;
+            color: #ccd6f6;
+            border: 1px solid #233554;
+            border-radius: 6px;
+            padding: 4px;
+        }}
+        QStatusBar {{ background-color: #112240; }}
+    """,
+    "Light": """
+        QMainWindow, QWidget {{
+            background-color: #f0f0f0;
+            color: #1a1a2e;
+            font-family: Courier New;
+            font-size: {font_size}px;
+        }}
+        QPushButton {{
+            background-color: #ffffff;
+            color: #1d4ed8;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 4px;
+        }}
+        QStatusBar {{ color: #1d4ed8; background-color: #ffffff; }}
+    """
+}
 
-app, swapper = None, None
-target_face = None
-recording = False
-writer = None
-filepath = None
+class AlpaWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Alpa")
+        self.setFixedSize(480, 620)
+        self.setWindowIcon(QIcon('assets/icon.png'))
 
-def load_model_on_start():
-    global app, swapper
-    print("[~ ALPA ~] Loading models...")
-    app, swapper = initialize_model()
+        self.app_model, self.swapper = None, None
+        self.target_face = None #Issue?
+        self.cap = None
+        self.recording = False
+        self.writer = None
+        self.filepath = None
+        self.font_size = 13
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_frame)
+
+        self.init_ui()
+        self.apply_theme("Dark")
+        self.load_models()
+
+    def init_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        #Title
+        title = QLabel("Alpa")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 32px; font-weight: bold; letter-spacing: 8px;")
+        layout.addWidget(title)
+
+        subtitle = QLabel("by X3N0")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("font-size: 20px; color: #8892b0;")
+        layout.addWidget(subtitle)
+
+        #Target face selection
+        self.target_label = QLabel("No Target Selected!")
+        self.target_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.target_label)
+
+        btn_browse = QPushButton("Select Target Face")
+        btn_browse.clicked.connect(self.select_target)
+        layout.addWidget(btn_browse)
+
+        #Feed section
+        self.feed_label = QLabel()
+        self.feed_label.setFixedSize(440, 228)
+        self.feed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.feed_label.setStyleSheet("border: 1px solid #233554;")
+        self.feed_label.setText("Feed Not Started!")
+        layout.addWidget(self.feed_label)
+
+        self.feed_btn = QPushButton("Start Live Feed")
+        self.feed_btn.clicked.connect(self.toggle_feed)
+        layout.addWidget(self.feed_btn)
+
+        self.rec_btn = QPushButton("Start Recording")
+        self.rec_btn.clicked.connect(self.toggle_recording)
+        layout.addWidget(self.rec_btn)
+
+        #Apperance controls
+        appearance = QHBoxLayout()
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Dark", "Light"])
+        self.theme_combo.currentTextChanged.connect(self.apply_theme)
+        appearance.addWidget(QLabel("Theme:"))
+        appearance.addWidget(self.theme_combo)
+
+        #Font
+        font_layout = QHBoxLayout()
+
+        self.font_combo = QComboBox()
+        self.font_combo.addItems(["Small", "Medium", "Large"])
+        self.font_combo.currentTextChanged.connect(self.apply_font_size)
+        font_layout.addWidget(QLabel("Font:"))
+        font_layout.addWidget(self.font_combo)
+
+        layout.addLayout(appearance)
+        layout.addLayout(font_layout)
+
+        #Stats bar
+        self.status = QStatusBar()
+        self.setStatusBar(self.status)
+        self.status.showMessage("[~ IDLE ~] Waiting for input")
 
 
-def select_target_image(label):
-    global target_face
-    path = filedialog.askopenfilename(
-        title="Select Target Face",
-        filetypes=[("Image Files", "*.jpg *.jpeg *.png")]
-    )
+    def load_models(self):
+        self.status.showMessage("[~ LOADING ~] Models")
+        self.app_model, self.swapper = initialize_model()
+        self.status.showMessage("[~ READY ~] Models loaded")
 
-    if path:
-        target_face = load_target_face(path, app)
-        if target_face is not None:
-            label.config(text=f"Target: {path.split('/')[-1]}")
+    def select_target(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Target Face", "",
+            "Image Files (*.jpg *.jpeg *.png)"
+        )
+        if path:
+            self.target_face = load_target_face(path, self.app_model)
+            if self.target_face is not None:
+                self.target_label.setText(f"Target: {path.split('/')[-1]}")
+                self.status.showMessage("[~ READY ~] Target Face loaded")
+            else:
+                self.status.showMessage("[~ ERROR ~] No Face Detected In The Image")
+
+    def toggle_feed(self):
+        if self.timer.isActive():
+            self.timer.stop()
+            if self.cap:
+                self.cap.release()
+            self.feed_label.setText("Feed Stopped!")
+            self.feed_btn.setText("Start Live Feed")
+            self.status.showMessage("[~ IDLE ~] Feed Stopped")
         else:
-            messagebox.showerror("Error", "No face detected in selected image")
+            cams = detect_user_cams()
+            if not cams:
+                self.status.showMessage("[~ ERROR ~] No Cameras Detected")
+                return
+            os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+            self.cap = cv2.VideoCapture(cams[0], cv2.CAP_DSHOW)
+            self.timer.start(10)
+            self.feed_btn.setText("Stop Live Feed")
+            self.status.showMessage("[~ LIVE ~] Feed Running")
 
-
-def toggle_recording(btn):
-    global recording, writer, filepath
-    if not recording:
-        writer, filepath = start_recording()
-        if writer:
-            recording = True
-            btn.config(text="STOP RECORDING", fg="red")
-            print(f"[~ INFO ~] Recording started: {filepath}")
-    else:
-        stop_recording(writer)
-        recording = False
-        writer = None
-        btn.config(text="START RECORDING", fg="black")
-        print(f"[~ INFO ~] Recording stopped and saved: {filepath}")
-
-
-def run_feed(window):
-    global target_face, recording, writer
-
-    cams = detect_user_cams()
-    if not cams:
-        messagebox.showerror("Error", "No cameras found")
-        return
-
-    cap = cv2.VideoCapture(cams[0])
-    if not cap.isOpened():
-        messagebox.showerror("Error", "Could not open camera")
-        return
-
-    def update_frame():
-        global recording, writer
-        ret, frame = cap.read()
+    def update_frame(self):
+        if not self.cap:
+            return
+        ret, frame = self.cap.read()
         if not ret:
-            cap.release()
             return
 
-        if target_face is not None:
-            frame = swap_current_face(frame, target_face, app, swapper)
+        if self.target_face is not None:
+            frame = swap_current_face(frame, self.target_face, self.app_model, self.swapper)
 
-        if recording and writer is not None:
-            write_frames(writer, frame)
+        if self.recording and self.writer is not None:
+            write_frames(self.writer, frame)
 
-        cv2.imshow("Alpa - Live Feed", frame)
-        cv2.waitKey(1)
+        #Convert OpenCV frame to Qt image for display
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = frame_rgb.shape
+        qt_image = QImage(frame_rgb, w, h, ch * w, QImage.Format.Format_RGB888)
+        self.feed_label.setPixmap(
+            QPixmap.fromImage(qt_image).scaled(
+                440, 248, Qt.AspectRatioMode.KeepAspectRatio
+            )
+        )
 
-        window.after(10, update_frame)
+    def toggle_recording(self):
+        if not self.recording:
+            self.writer, self.filepath = start_recording()
+            self.recording = True
+            self.rec_btn.setText("Stop Recording")
+            self.status.showMessage(f"[~ REC ~] Recording to {self.filepath}")
+        else:
+            stop_recording(self.writer)
+            self.recording = False
+            self.writer = None
+            self.rec_btn.setText("Start Recording")
+            self.status.showMessage(f"[~ SAVED ~] Recording Saved")
 
-    update_frame()
 
+    def apply_font_size(self, size_name):
+        #Map text options
+        size_map = {
+            "Small": 11,
+            "Medium": 13,
+            "Large": 16,
+        }
 
-def build_gui():
-    window = tk.Tk()
-    window.title("Alpa - Identity Synthesis Demo")
-    window.geometry("400x300")
-    window.resizable(False, False)
+        #Update font size var
+        self.font_size = size_map.get(size_name, 13)
+        self.apply_theme(self.theme_combo.currentText())#Refresh the current theme with new size
 
-    tk.Label(
-        window,
-        text="ALPA",
-        font=("Courier", 24, "bold")
-    ).pack(pady=10)
+    def apply_theme(self, theme_name):
+        style_template = THEMES.get(theme_name, THEMES["Dark"])
 
-    tk.Label(
-        window,
-        text="Real-Time Identity Synthesis Demo",
-        font=("Courier", 10)
-    ).pack()
+        #Inject the current font size into the theme selected
+        final_style = style_template.format(font_size=self.font_size)
+        self.setStyleSheet(final_style)
 
-    target_label = tk.Label(window, text="No target selected", font=("Courier", 9))
-    target_label.pack(pady=5)
+    def closeEvent(self, event):
+        self.timer.stop()
+        if self.cap:
+            self.cap.release()
+        if self.recording and self.writer:
+            stop_recording(self.writer)
+        cv2.destroyAllWindows()
+        event.accept()
 
-    tk.Button(
-        window,
-        text="Select Target Face",
-        command=lambda: select_target_image(target_label)
-    ).pack(pady=5)
-
-    tk.Button(
-        window,
-        text="Start Live Feed",
-        command=lambda: run_feed(window)
-    ).pack(pady=5)
-
-    rec_btn = tk.Button(
-        window,
-        text="Start Recording",
-        width=25
-    )
-
-    rec_btn.config(command=lambda: toggle_recording(rec_btn))
-    rec_btn.pack(pady=5)
-
-    tk.Button(
-        window,
-        text="Exit",
-        width=25,
-        fg="white",
-        bg="red",
-        command=window.destroy
-    ).pack(pady=20)
-
-    window.mainloop()
 
 
 def main():
-    load_model_on_start()
-    build_gui()
+        app = QApplication(sys.argv)
+        window = AlpaWindow()
+        window.show()
+        sys.exit(app.exec())
+
 
 
 if __name__ == "__main__":
