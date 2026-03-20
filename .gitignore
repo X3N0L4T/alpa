@@ -1,0 +1,9 @@
+.venv/
+.venv311/
+models/
+recordings/
+assets/target*
+*.mp4
+__pycache__/
+*.pyc
+.idea/
