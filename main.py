@@ -9,9 +9,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QImage, QPixmap, QIcon, QFont
 
+import tracker
 from camera import detect_user_cams
 from face_swap import initialize_model, load_target_face, swap_current_face
 from logger import start_recording, write_frames, stop_recording
+from tracker import draw_landmarks
+from tracker import tracker_build, draw_landmarks
 
 THEMES = {
     "Dark": """
@@ -63,6 +66,9 @@ class AlpaWindow(QMainWindow):
         self.setWindowTitle("Alpa")
         self.setFixedSize(480, 620)
         self.setWindowIcon(QIcon('assets/icon.png'))
+        self.tracker = tracker_build()
+        self.frame_count = 0
+        self.last_tracked_frame = None
 
         self.app_model, self.swapper = None, None
         self.target_face = None #Issue?
@@ -71,6 +77,7 @@ class AlpaWindow(QMainWindow):
         self.writer = None
         self.filepath = None
         self.font_size = 13
+        self.frame_count = 0
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
@@ -192,6 +199,12 @@ class AlpaWindow(QMainWindow):
         ret, frame = self.cap.read()
         if not ret:
             return
+
+        self.frame_count += 1
+        if self.frame_count % 3 == 0:
+            self.last_tracked_frame = draw_landmarks(frame.copy(), self.tracker)
+        if self.last_tracked_frame is not None:
+            frame = self.last_tracked_frame
 
         if self.target_face is not None:
             frame = swap_current_face(frame, self.target_face, self.app_model, self.swapper)

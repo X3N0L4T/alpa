@@ -7,3 +7,5 @@ assets/target*
 __pycache__/
 *.pyc
 .idea/
+face_landmarker.task
+*.task

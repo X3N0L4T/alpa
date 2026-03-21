@@ -1,4 +1,7 @@
-# face_swap.py
+import os
+os.environ["CUDA_PATH"] = ""
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
 import cv2
 import insightface
 from insightface.app import FaceAnalysis
